@@ -11,7 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any, Dict, Optional
 
 from modules.dir_size.core import DirSizeResult, ScanCancelled, format_size, scan_directory_sizes
-from modules.dir_size.storage import load_last_snapshot, save_scan_snapshot
+from modules.dir_size.storage import load_last_snapshot, query_trend_points, save_scan_snapshot
 from wintools.base import BaseModule, StatusCallback
 
 
@@ -45,9 +45,9 @@ class DirSizeModule(BaseModule):
         self.active_scan_tree: Optional[ttk.Treeview] = None
         self.active_scan_title_base: Optional[str] = None
 
-        # tab_id -> root folder path of this result page
+        # tab_id -> 当前结果页对应的根目录路径
         self.tab_root_paths: Dict[str, str] = {}
-        # tab_id -> raw title text (without active marker)
+        # tab_id -> 原始标题文本（不含活动标记）
         self.tab_titles: Dict[str, str] = {}
 
     def mount(self, parent: ttk.Frame, set_status: StatusCallback) -> None:
@@ -101,6 +101,7 @@ class DirSizeModule(BaseModule):
 
         self.tree_menu = tk.Menu(parent, tearoff=0)
         self.tree_menu.add_command(label="\u6df1\u5165\u626b\u63cf\u6b64\u76ee\u5f55", command=self._scan_selected_row_dir)
+        self.tree_menu.add_command(label="\u5206\u6790\u8d8b\u52bf", command=self._analyze_selected_row_trend)
         self.tree_menu.add_command(label="\u6253\u5f00\u6240\u5728\u4f4d\u7f6e", command=self._open_selected_row_location)
 
         self.tab_menu = tk.Menu(parent, tearoff=0)
@@ -123,7 +124,7 @@ class DirSizeModule(BaseModule):
         selected = self.notebook.select()
         for tab_id in self.notebook.tabs():
             raw = self.tab_titles.get(tab_id, self.notebook.tab(tab_id, "text"))
-            # Active tab gets a visual marker for quick recognition.
+            # 当前活动标签页增加视觉标记，便于快速识别。
             text = f"\u25cf {raw}" if tab_id == selected else raw
             self.notebook.tab(tab_id, text=text)
 
@@ -141,7 +142,7 @@ class DirSizeModule(BaseModule):
         tree.column("size", width=130, anchor="e")
         tree.column("size_bytes", width=140, anchor="e")
 
-        # Highlight current scanned root folder row in each result page.
+        # 在每个结果页中高亮“当前扫描根目录”这一行。
         tree.tag_configure("current_dir", background="#fff2cc", foreground="#111111")
 
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
@@ -365,7 +366,7 @@ class DirSizeModule(BaseModule):
             return
 
         try:
-            # Prefer locating target in Explorer.
+            # 优先在资源管理器中定位目标目录。
             subprocess.Popen(["explorer", f"/select,{target_path}"])
         except Exception:
             try:
@@ -375,6 +376,142 @@ class DirSizeModule(BaseModule):
                 return
 
         self._set_status(f"\u5df2\u6253\u5f00\u76ee\u5f55\u4f4d\u7f6e: {target_path}")
+    def _analyze_selected_row_trend(self) -> None:
+        tree = self.context_tree
+        if tree is None:
+            return
+
+        selected = tree.selection()
+        if not selected:
+            return
+
+        row = selected[0]
+        values = tree.item(row, "values")
+        if not values:
+            return
+
+        target_path = str(values[0])
+        points = query_trend_points(target_path)
+        if not points:
+            messagebox.showinfo("\u63d0\u793a", "\u8be5\u76ee\u5f55\u6682\u65e0\u5386\u53f2\u626b\u63cf\u6570\u636e\u3002")
+            return
+
+        self._show_trend_popup(target_path, points)
+
+    def _show_trend_popup(self, target_path: str, points: list[dict[str, Any]]) -> None:
+        if self.parent is None:
+            return
+
+        popup = tk.Toplevel(self.parent)
+        popup.title(f"\u5386\u53f2\u8d8b\u52bf - {target_path}")
+        popup.geometry("820x560")
+        popup.minsize(700, 460)
+
+        root = ttk.Frame(popup, padding=10)
+        root.pack(fill="both", expand=True)
+        root.rowconfigure(1, weight=1)
+        root.columnconfigure(0, weight=1)
+
+        ttk.Label(
+            root,
+            text=f"\u76ee\u5f55: {target_path}\n\u6837\u672c\u70b9: {len(points)}",
+            justify="left",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+
+        chart = tk.Canvas(root, bg="white", highlightthickness=1, highlightbackground="#d0d0d0", height=260)
+        chart.grid(row=1, column=0, sticky="ew")
+
+        bottom = ttk.Frame(root)
+        bottom.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
+        bottom.rowconfigure(0, weight=1)
+        bottom.columnconfigure(0, weight=1)
+
+        table = ttk.Treeview(bottom, columns=("time", "size"), show="headings", height=9)
+        table.heading("time", text="\u626b\u63cf\u65f6\u95f4")
+        table.heading("size", text="\u76ee\u5f55\u603b\u5927\u5c0f")
+        table.column("time", width=220, anchor="w")
+        table.column("size", width=160, anchor="e")
+
+        sb = ttk.Scrollbar(bottom, orient="vertical", command=table.yview)
+        table.configure(yscrollcommand=sb.set)
+        table.grid(row=0, column=0, sticky="nsew")
+        sb.grid(row=0, column=1, sticky="ns")
+
+        for row_item in reversed(points):
+            table.insert("", tk.END, values=(str(row_item["scanned_at"]), format_size(int(row_item["root_size_bytes"]))))
+
+        # 窗口尺寸变化时重绘，少量数据点（如 3 个）也能充分展开。
+        chart.bind("<Configure>", lambda _e: self._draw_trend_chart(chart, points))
+        self._draw_trend_chart(chart, points)
+
+    def _format_time_label(self, raw: str) -> str:
+        try:
+            dt = datetime.fromisoformat(raw)
+            return dt.strftime("%m-%d %H:%M")
+        except ValueError:
+            return raw[:16]
+
+    def _draw_trend_chart(self, canvas: tk.Canvas, points: list[dict[str, Any]]) -> None:
+        canvas.delete("all")
+
+        width = max(420, int(canvas.winfo_width() or 0))
+        height = max(220, int(canvas.winfo_height() or 0))
+
+        left, right = 64, 20
+        top, bottom = 20, 46
+        plot_w = max(80, width - left - right)
+        plot_h = max(80, height - top - bottom)
+
+        canvas.create_line(left, top, left, top + plot_h, fill="#666")
+        canvas.create_line(left, top + plot_h, left + plot_w, top + plot_h, fill="#666")
+
+        sizes = [int(x["root_size_bytes"]) for x in points]
+        min_v = min(sizes)
+        max_v = max(sizes)
+
+        span = max_v - min_v
+        if span == 0:
+            pad = max(1, int(max_v * 0.05))
+            plot_min = min_v - pad
+            plot_max = max_v + pad
+        else:
+            pad = max(1, int(span * 0.1))
+            plot_min = min_v - pad
+            plot_max = max_v + pad
+
+        plot_span = max(1, plot_max - plot_min)
+
+        def x_pos(i: int) -> float:
+            if len(points) <= 1:
+                return left + plot_w / 2
+            return left + i * (plot_w / (len(points) - 1))
+
+        def y_pos(v: int) -> float:
+            return top + plot_h - ((v - plot_min) / plot_span) * plot_h
+
+        poly: list[float] = []
+        for i, p in enumerate(points):
+            px = x_pos(i)
+            py = y_pos(int(p["root_size_bytes"]))
+            poly.extend([px, py])
+            canvas.create_oval(px - 3, py - 3, px + 3, py + 3, fill="#2b6cb0", outline="#2b6cb0")
+
+        if len(poly) >= 4:
+            canvas.create_line(*poly, fill="#2b6cb0", width=2)
+
+        canvas.create_text(8, top, text=format_size(max_v), anchor="w", fill="#444")
+        canvas.create_text(8, top + plot_h, text=format_size(min_v), anchor="w", fill="#444")
+
+        # X 轴标签自适应抽样，避免重叠并保留关键时间点。
+        max_labels = max(2, plot_w // 110)
+        step = max(1, (len(points) + max_labels - 1) // max_labels)
+        indices = list(range(0, len(points), step))
+        if indices[-1] != len(points) - 1:
+            indices.append(len(points) - 1)
+
+        for i in indices:
+            label = self._format_time_label(str(points[i]["scanned_at"]))
+            canvas.create_text(x_pos(i), top + plot_h + 18, text=label, anchor="n", fill="#444")
 
     def _choose_dir(self) -> None:
         folder = filedialog.askdirectory(title="\u9009\u62e9\u8981\u626b\u63cf\u7684\u76ee\u5f55")
