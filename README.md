@@ -1,7 +1,11 @@
-﻿# WinTools
+# WinTools
 
 WinTools 是一个基于 Python + tkinter + ttk 的 Windows 桌面工具集。
 当前已实现可扩展主框架，以及第一个模块：目录大小统计。
+
+## 文档
+
+- 设计文档：[docs/设计文档.md](docs/设计文档.md)
 
 ## 运行环境
 
@@ -35,7 +39,7 @@ python main.py
 当前持久化后端为 SQLite，主要数据表：
 
 - `scan_runs`：记录每次扫描的根目录信息、扫描时间、总大小等
-- `scan_top_dirs`：记录每次扫描的 Top 子目录数据（默认前 20）
+- `scan_top_dirs`：记录每次扫描结果中的目录行（根目录 + 直接子目录），用于趋势分析
 
 说明：
 

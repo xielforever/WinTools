@@ -51,14 +51,36 @@ def init_db() -> None:
                 run_id INTEGER NOT NULL,
                 path TEXT NOT NULL,
                 size_bytes INTEGER NOT NULL,
+                path_key TEXT,
                 FOREIGN KEY(run_id) REFERENCES scan_runs(id) ON DELETE CASCADE
             )
             """
         )
+
+        # 兼容旧库：补齐 path_key 字段，便于按任意目录路径做趋势查询。
+        columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(scan_top_dirs)")}
+        if "path_key" not in columns:
+            conn.execute("ALTER TABLE scan_top_dirs ADD COLUMN path_key TEXT")
+
+        # 历史行回填：不依赖文件系统，按字符串小写做兜底标准化。
+        conn.execute(
+            """
+            UPDATE scan_top_dirs
+            SET path_key = lower(path)
+            WHERE path_key IS NULL OR path_key = ''
+            """
+        )
+
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_scan_runs_root_time
             ON scan_runs(root_path_key, scanned_at)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scan_top_dirs_path_key
+            ON scan_top_dirs(path_key)
             """
         )
 
@@ -93,10 +115,11 @@ def save_scan_snapshot(root_path: str, results: List[DirSizeResult]) -> Snapshot
         )
         run_id = int(cursor.lastrowid)
 
-        top_rows = [(run_id, row.path, row.size_bytes) for row in results[:20]]
+        # 保存当前层级全部结果（含根目录与直接子目录），便于右键任意目录做趋势分析。
+        rows = [(run_id, row.path, row.size_bytes, _normalize_path(row.path)) for row in results]
         conn.executemany(
-            "INSERT INTO scan_top_dirs(run_id, path, size_bytes) VALUES(?, ?, ?)",
-            top_rows,
+            "INSERT INTO scan_top_dirs(run_id, path, size_bytes, path_key) VALUES(?, ?, ?, ?)",
+            rows,
         )
 
     snapshot: Snapshot = {
@@ -151,12 +174,23 @@ def query_trend_points(root_path: str, limit: Optional[int] = None) -> list[Tren
 
     sql = """
         SELECT scanned_at, root_size_bytes
-        FROM scan_runs
-        WHERE root_path_key = ?
-        ORDER BY scanned_at ASC, id ASC
-    """
-    params: list[object] = [target]
+        FROM (
+            SELECT id AS run_id, scanned_at, root_size_bytes
+            FROM scan_runs
+            WHERE root_path_key = ?
 
+            UNION ALL
+
+            SELECT r.id AS run_id, r.scanned_at AS scanned_at, d.size_bytes AS root_size_bytes
+            FROM scan_top_dirs d
+            JOIN scan_runs r ON r.id = d.run_id
+            WHERE d.path_key = ?
+              AND d.path_key <> r.root_path_key
+        ) t
+        ORDER BY scanned_at ASC, run_id ASC
+    """
+
+    params: list[object] = [target, target]
     if limit is not None and limit > 0:
         sql += " LIMIT ?"
         params.append(limit)
