@@ -1,15 +1,16 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
 from typing import Dict, Optional, Type
 
+from wintools import __version__
 from wintools.base import BaseModule
 from wintools.module_registry import get_module_registry
 
 
 class WinToolsApp:
-    # 统一色彩令牌，便于后续模块复用。
+    # 缁熶竴鑹插僵浠ょ墝锛屼究浜庡悗缁ā鍧楀鐢ㄣ€?
     COLOR_BG = "#f3f6fb"
     COLOR_SURFACE = "#ffffff"
     COLOR_PRIMARY = "#165DFF"
@@ -23,7 +24,7 @@ class WinToolsApp:
 
     def __init__(self) -> None:
         self.root = tk.Tk()
-        self.root.title("WinTools")
+        self.root.title(f"WinTools v{__version__}")
         self.root.geometry("1120x720")
         self.root.minsize(940, 620)
 
@@ -99,7 +100,7 @@ class WinToolsApp:
         left_panel.rowconfigure(1, weight=1)
         left_panel.columnconfigure(0, weight=1)
 
-        ttk.Label(left_panel, text="★ 模块导航", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(2, 8))
+        ttk.Label(left_panel, text="模块导航", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(2, 8))
 
         nav_card = ttk.Frame(left_panel, style="Card.TFrame", padding=10)
         nav_card.grid(row=1, column=0, sticky="nsew")
@@ -127,7 +128,7 @@ class WinToolsApp:
         info_card.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
         info_card.columnconfigure(0, weight=1)
 
-        ttk.Label(info_card, text="★ 工具介绍", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(info_card, text="工具介绍", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(info_card, textvariable=self.module_count_var, style="Body.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 8))
         ttk.Label(
             info_card,
@@ -159,7 +160,7 @@ class WinToolsApp:
 
         tk.Label(
             left,
-            text="★ WinTools 工具集",
+            text="WinTools 工具集",
             bg=self.COLOR_PRIMARY,
             fg="#FFFFFF",
             font=("Microsoft YaHei UI", 20, "bold"),
@@ -178,7 +179,7 @@ class WinToolsApp:
 
         tk.Label(
             right,
-            text="★ 首页\n★ 欢迎使用",
+            text="首页`n欢迎使用",
             justify="right",
             bg="#EAF2FF",
             fg=self.COLOR_PRIMARY_DARK,
@@ -191,9 +192,9 @@ class WinToolsApp:
         strip = ttk.Frame(parent, style="Card.TFrame", padding=(10, 8))
         strip.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 12))
 
-        ttk.Label(strip, text="★ 非阻塞扫描", style="Pill.TLabel").pack(side="left")
-        ttk.Label(strip, text="★ 历史趋势分析", style="Pill.TLabel").pack(side="left", padx=8)
-        ttk.Label(strip, text="★ 多标签结果集", style="Pill.TLabel").pack(side="left")
+        ttk.Label(strip, text="非阻塞扫描", style="Pill.TLabel").pack(side="left")
+        ttk.Label(strip, text="历史趋势分析", style="Pill.TLabel").pack(side="left", padx=8)
+        ttk.Label(strip, text="多标签结果集", style="Pill.TLabel").pack(side="left")
 
     def _build_status_bar(self) -> None:
         self.status_container = tk.Frame(
@@ -256,7 +257,7 @@ class WinToolsApp:
             self.set_status(f"模块不存在: {module_name}")
             return
 
-        # 点击空白区域或重复选择当前模块时，不重复卸载/挂载。
+        # 鐐瑰嚮绌虹櫧鍖哄煙鎴栭噸澶嶉€夋嫨褰撳墠妯″潡鏃讹紝涓嶉噸澶嶅嵏杞?鎸傝浇銆?
         if self.current_module is not None and self.current_module_name == module_name:
             return
 
@@ -279,3 +280,5 @@ class WinToolsApp:
 
     def run(self) -> None:
         self.root.mainloop()
+
+
