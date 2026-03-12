@@ -39,7 +39,7 @@ try {
     if (-not $SkipDependencyInstall) {
         Write-Host "[build] Installing build dependencies..."
         python -m pip install --upgrade pip
-        python -m pip install -e ".[build]"
+        python -m pip install pyinstaller
     }
 
     Write-Host "[build] Building one-directory package..."
@@ -71,3 +71,4 @@ finally {
         Remove-Item -Force $versionFile
     }
 }
+
