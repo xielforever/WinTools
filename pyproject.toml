@@ -1,0 +1,14 @@
+﻿[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wintools"
+version = "0.0.0"
+description = "WinTools desktop utility suite for Windows."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.10,<7"]

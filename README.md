@@ -1,4 +1,4 @@
-# WinTools
+﻿# WinTools
 
 WinTools 是一个基于 Python + tkinter + ttk 的 Windows 桌面工具集。
 当前已实现可扩展主框架，以及第一个模块：目录大小统计。
@@ -6,6 +6,8 @@ WinTools 是一个基于 Python + tkinter + ttk 的 Windows 桌面工具集。
 ## 文档
 
 - 设计文档：[docs/设计文档.md](docs/设计文档.md)
+- 进度跟踪：[docs/进度跟踪.md](docs/进度跟踪.md)
+- 发布说明：[docs/发布说明.md](docs/发布说明.md)
 
 ## 运行环境
 
@@ -45,6 +47,25 @@ python main.py
 
 - 历史 `jsonl` 文件保留，但不再作为读写数据源
 - 趋势分析基于 SQLite 历史数据进行查询
+
+## 打包与发布（Windows）
+
+### 本地构建（同时产出 OneDir ZIP + OneFile EXE）
+
+```powershell
+./scripts/build.ps1 -Version v0.1.0
+```
+
+产物位置：
+
+- `dist/WinTools-v0.1.0-windows-onedir.zip`
+- `dist/WinTools-v0.1.0-windows-onefile.exe`
+
+### GitHub Release
+
+- 自动触发：推送标签 `vMAJOR.MINOR.PATCH`（例如 `v0.1.0`）
+- 手动触发：Actions -> `Release` -> `Run workflow`，输入 `version_tag`
+- 版本真源：Git Tag（仅允许 `vMAJOR.MINOR.PATCH`）
 
 ## 后续扩展方式
 

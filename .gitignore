@@ -1,4 +1,4 @@
-# Python cache
+﻿# Python cache
 __pycache__/
 *.py[cod]
 
@@ -10,3 +10,12 @@ __pycache__/
 # Virtual env (if any)
 .venv/
 venv/
+
+# Build outputs
+/dist/
+/build/
+/*.spec
+/.pyinstaller/
+
+# Build-injected version file (generated during packaging)
+/wintools/_build_version.py
