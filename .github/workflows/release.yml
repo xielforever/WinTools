@@ -67,8 +67,8 @@ jobs:
           $zipHash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
           $exeHash = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
           "### 构建产物 SHA256" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-          "- onedir.zip: `sha256:$zipHash`" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-          "- onefile.exe: `sha256:$exeHash`" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "- onedir.zip: sha256:$zipHash" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "- onefile.exe: sha256:$exeHash" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
