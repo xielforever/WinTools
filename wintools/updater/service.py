@@ -6,6 +6,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -158,13 +160,14 @@ def launch_updater(staged: StagedPackage, current_pid: int, app_dir: Path) -> No
     if not updater_exe.exists():
         raise UpdateError("当前版本不支持自动更新：未找到 WinToolsUpdater.exe")
 
+    runtime_updater_exe = _prepare_runtime_updater_exe(updater_exe)
     backup_dir = app_dir.parent / f"{app_dir.name}_bak"
     restart_exe = app_dir / "WinTools.exe"
     log_path = app_dir / "data" / "updates" / "update.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     args = [
-        str(updater_exe),
+        str(runtime_updater_exe),
         "--pid",
         str(current_pid),
         "--app-dir",
@@ -232,4 +235,25 @@ def _validate_bundle(bundle_dir: Path) -> None:
     missing = [str(p.name) for p in required if not p.exists()]
     if missing:
         raise UpdateError(f"更新包结构无效：缺少 {', '.join(missing)}")
+
+
+def _prepare_runtime_updater_exe(source_exe: Path) -> Path:
+    runtime_dir = Path(tempfile.gettempdir()) / "WinToolsUpdaterRuntime"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+
+    # Best-effort cleanup for old updater copies.
+    now = time.time()
+    for stale in runtime_dir.glob("WinToolsUpdater-*.exe"):
+        try:
+            if now - stale.stat().st_mtime > 24 * 3600:
+                stale.unlink()
+        except Exception:
+            pass
+
+    runtime_exe = runtime_dir / f"WinToolsUpdater-{int(now)}.exe"
+    try:
+        shutil.copy2(source_exe, runtime_exe)
+    except Exception as exc:
+        raise UpdateError(f"准备更新器失败：{exc}") from exc
+    return runtime_exe
 
