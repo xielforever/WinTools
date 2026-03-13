@@ -5,6 +5,7 @@ from typing import Dict, Iterable, Literal, Optional, Type
 
 from modules.dir_size.ui import DirSizeModule
 from modules.large_files.ui import LargeFilesModule
+from modules.password_vault.ui import PasswordVaultModule
 from wintools.base import BaseModule
 
 ModuleStatus = Literal["available", "planned", "beta"]
@@ -127,6 +128,18 @@ def get_module_catalog() -> list[ModuleMeta]:
             sort_order=4,
         ),
         # 安全工具
+        ModuleMeta(
+            id="password-vault",
+            name=PasswordVaultModule.name,
+            category="安全工具",
+            status="available",
+            priority="available",
+            description=PasswordVaultModule.description,
+            module_cls=PasswordVaultModule,
+            available=True,
+            scenarios=("集中管理常用账号密码", "快速复制密码到登录页面"),
+            sort_order=0,
+        ),
         ModuleMeta(
             id="startup-task-audit",
             name="启动项与计划任务巡检",
