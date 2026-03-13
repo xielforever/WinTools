@@ -66,38 +66,47 @@ class DirSizeModule(BaseModule):
             self.tab_menu = None
 
     def _build_ui(self, parent: ttk.Frame) -> None:
-        parent.rowconfigure(2, weight=1)
+        parent.rowconfigure(1, weight=1)
         parent.columnconfigure(0, weight=1)
 
-        intro = ttk.Label(
-            parent,
-            text=(
-                "\u529f\u80fd\u8bf4\u660e\uff1a\u9009\u62e9\u76ee\u5f55\u540e\u4ec5\u5c55\u793a\u5f53\u524d\u5c42\u7ea7\uff08\u6839\u76ee\u5f55\u53ca\u76f4\u63a5\u5b50\u76ee\u5f55\uff09\uff0c\u4f46\u5927\u5c0f\u6309\u9012\u5f52\u603b\u5927\u5c0f\u8ba1\u7b97\u3002\n"
-                "\u6bcf\u6b21\u626b\u63cf\u4f1a\u65b0\u5efa\u4e00\u4e2a\u9009\u9879\u5361\u5e76\u5199\u5165 data/dir_size_history.db\uff0c\u4fbf\u4e8e\u540e\u7eed\u5bf9\u6bd4\u548c\u589e\u957f\u8d8b\u52bf\u5206\u6790\u3002"
-            ),
-            justify="left",
-            foreground="#333333",
-        )
-        intro.grid(row=0, column=0, sticky="w", pady=(0, 8))
+        control_card = ttk.Frame(parent, style="ToolBar.TFrame", padding=(10, 8))
+        control_card.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        control_card.columnconfigure(0, weight=1)
 
-        control = ttk.Frame(parent)
-        control.grid(row=1, column=0, sticky="ew")
+        control = ttk.Frame(control_card, style="ToolBar.TFrame")
+        control.grid(row=0, column=0, sticky="ew")
         control.columnconfigure(1, weight=1)
 
-        ttk.Label(control, text="\u76ee\u6807\u76ee\u5f55:").grid(row=0, column=0, padx=(0, 8), pady=6, sticky="w")
-        ttk.Entry(control, textvariable=self.path_var).grid(row=0, column=1, pady=6, sticky="ew")
-        ttk.Button(control, text="\u9009\u62e9\u76ee\u5f55", command=self._choose_dir).grid(row=0, column=2, padx=8, pady=6)
+        ttk.Label(control, text="\u76ee\u6807\u76ee\u5f55:").grid(row=0, column=0, padx=(0, 8), pady=4, sticky="w")
+        ttk.Entry(control, textvariable=self.path_var).grid(row=0, column=1, pady=4, sticky="ew")
+        ttk.Button(control, text="\u9009\u62e9\u76ee\u5f55", command=self._choose_dir).grid(row=0, column=2, padx=8, pady=4)
 
         self.scan_btn = ttk.Button(control, text="\u5f00\u59cb\u626b\u63cf", command=self._start_scan)
-        self.scan_btn.grid(row=0, column=3, padx=(0, 8), pady=6)
+        self.scan_btn.grid(row=0, column=3, padx=(0, 8), pady=4)
 
         self.stop_btn = ttk.Button(control, text="\u505c\u6b62\u626b\u63cf", command=self._stop_scan, state="disabled")
-        self.stop_btn.grid(row=0, column=4, pady=6)
+        self.stop_btn.grid(row=0, column=4, pady=4)
 
-        self.notebook = ttk.Notebook(parent)
-        self.notebook.grid(row=2, column=0, sticky="nsew")
+        hint = tk.Label(
+            control_card,
+            text="\u652f\u6301\u591a\u6807\u7b7e\u7ed3\u679c\uff0c\u53ef\u53f3\u952e\u7ed3\u679c\u884c\u6df1\u5165\u626b\u63cf\u6216\u5206\u6790\u8d8b\u52bf",
+            bg="#F8FAFF",
+            fg="#475569",
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+        )
+        hint.grid(row=1, column=0, sticky="w", pady=(6, 0))
+
+        result_card = ttk.Frame(parent, style="Card.TFrame", padding=8)
+        result_card.grid(row=1, column=0, sticky="nsew")
+        result_card.rowconfigure(0, weight=1)
+        result_card.columnconfigure(0, weight=1)
+
+        self.notebook = ttk.Notebook(result_card)
+        self.notebook.grid(row=0, column=0, sticky="nsew")
         self.notebook.bind("<Button-3>", self._on_tab_right_click)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+        self._create_default_tab()
 
         self.tree_menu = tk.Menu(parent, tearoff=0)
         self.tree_menu.add_command(label="\u6df1\u5165\u626b\u63cf\u6b64\u76ee\u5f55", command=self._scan_selected_row_dir)
@@ -107,6 +116,22 @@ class DirSizeModule(BaseModule):
         self.tab_menu = tk.Menu(parent, tearoff=0)
         self.tab_menu.add_command(label="\u5173\u95ed\u5f53\u524d\u7ed3\u679c\u9875", command=self._close_current_tab)
         self.tab_menu.add_command(label="\u5173\u95ed\u5176\u4ed6\u7ed3\u679c\u9875", command=self._close_other_tabs)
+
+    def _create_default_tab(self) -> None:
+        if self.notebook is None:
+            return
+
+        tab = ttk.Frame(self.notebook)
+        tab.rowconfigure(0, weight=1)
+        tab.columnconfigure(0, weight=1)
+
+        tree = self._create_result_tree(tab)
+        tree.insert("", tk.END, values=("\u6682\u65e0\u7ed3\u679c\uff0c\u8bf7\u70b9\u51fb\u201c\u5f00\u59cb\u626b\u63cf\u201d", "", ""))
+
+        self.notebook.add(tab, text="")
+        tab_id = str(tab)
+        self._set_tab_raw_title(tab_id, "\u7b49\u5f85\u626b\u63cf")
+        self.notebook.select(tab)
 
     def _normalize_path(self, path: str) -> str:
         return str(Path(path).resolve()).lower()

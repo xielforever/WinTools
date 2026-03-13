@@ -1,22 +1,27 @@
 ﻿from __future__ import annotations
 
+import json
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk
-from typing import Dict, Optional, Type
+from typing import Optional
 
 from wintools import __version__
 from wintools.base import BaseModule
-from wintools.module_registry import get_module_registry
+from wintools.module_registry import ModuleMeta, get_module_catalog, sort_module_catalog
 
 
 class WinToolsApp:
-    # 缁熶竴鑹插僵浠ょ墝锛屼究浜庡悗缁ā鍧楀鐢ㄣ€?
-    COLOR_BG = "#f3f6fb"
-    COLOR_SURFACE = "#ffffff"
+    # 伪玻璃主题：使用浅色叠层 + 高光边框模拟玻璃感。
+    COLOR_BG = "#E7EEFF"
+    COLOR_SURFACE = "#FFFFFF"
+    COLOR_GLASS = "#F5F8FF"
+    COLOR_GLASS_SOFT = "#F9FBFF"
+    COLOR_GLASS_EDGE = "#C6D8FF"
     COLOR_PRIMARY = "#165DFF"
     COLOR_PRIMARY_DARK = "#0E42B3"
-    COLOR_TEXT = "#0F172A"
-    COLOR_MUTED = "#475569"
+    COLOR_TEXT = "#0B1220"
+    COLOR_MUTED = "#334155"
     COLOR_BORDER = "#D7E0EF"
     COLOR_SUCCESS = "#16A34A"
     COLOR_WARNING = "#D97706"
@@ -27,18 +32,30 @@ class WinToolsApp:
         self.root.title(f"WinTools v{__version__}")
         self.root.geometry("1120x720")
         self.root.minsize(940, 620)
+        self._apply_window_glass_effect()
 
-        self.registry: Dict[str, Type[BaseModule]] = get_module_registry()
+        self.module_catalog: list[ModuleMeta] = sort_module_catalog(get_module_catalog())
+        self.module_node_map: dict[str, ModuleMeta] = {}
+        self.module_id_to_node: dict[str, str] = {}
+        self.category_nodes: dict[str, str] = {}
         self.current_module: Optional[BaseModule] = None
         self.current_module_name: Optional[str] = None
+        self.nav_state: dict[str, object] = self._load_nav_state()
 
         self.module_desc_var = tk.StringVar(value="")
         self.module_count_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="● 就绪")
+        self.module_title_var = tk.StringVar(value="请选择模块")
+        self.module_desc_text: Optional[tk.Label] = None
+        self.main_pane: Optional[tk.PanedWindow] = None
+        self.module_info_card: Optional[ttk.Frame] = None
+        self.nav_tree: Optional[ttk.Treeview] = None
 
         self._configure_styles()
         self._build_ui()
         self._load_default_module()
+        self.root.bind("<Configure>", self._on_window_resize)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _configure_styles(self) -> None:
         style = ttk.Style()
@@ -48,8 +65,10 @@ class WinToolsApp:
         self.root.configure(bg=self.COLOR_BG)
 
         style.configure("App.TFrame", background=self.COLOR_BG)
-        style.configure("Card.TFrame", background=self.COLOR_SURFACE, borderwidth=1, relief="solid")
+        style.configure("Card.TFrame", background=self.COLOR_GLASS, borderwidth=1, relief="solid")
         style.configure("Content.TFrame", background=self.COLOR_SURFACE, borderwidth=1, relief="solid")
+        style.configure("ToolBar.TFrame", background=self.COLOR_GLASS_SOFT, borderwidth=1, relief="solid")
+        style.configure("Soft.TFrame", background=self.COLOR_GLASS_SOFT, borderwidth=1, relief="solid")
 
         style.configure(
             "HeaderTitle.TLabel",
@@ -65,105 +84,176 @@ class WinToolsApp:
         )
         style.configure(
             "SectionTitle.TLabel",
-            background=self.COLOR_SURFACE,
+            background=self.COLOR_GLASS_SOFT,
             foreground=self.COLOR_TEXT,
             font=("Microsoft YaHei UI", 11, "bold"),
         )
         style.configure(
             "Body.TLabel",
-            background=self.COLOR_SURFACE,
+            background=self.COLOR_GLASS_SOFT,
             foreground=self.COLOR_MUTED,
             font=("Microsoft YaHei UI", 10),
         )
         style.configure(
+            "Muted.TLabel",
+            background=self.COLOR_GLASS_SOFT,
+            foreground="#526277",
+            font=("Microsoft YaHei UI", 9),
+        )
+        style.configure(
             "Pill.TLabel",
-            background="#E8F0FF",
+            background="#DCE7FF",
             foreground=self.COLOR_PRIMARY_DARK,
             font=("Microsoft YaHei UI", 9, "bold"),
             padding=(10, 4),
         )
+        style.configure("TNotebook", background=self.COLOR_SURFACE, borderwidth=0)
+        style.configure("TNotebook.Tab", padding=(12, 6))
 
     def _build_ui(self) -> None:
         self.root.rowconfigure(0, weight=1)
         self.root.columnconfigure(0, weight=1)
 
-        main = ttk.Frame(self.root, style="App.TFrame", padding=12)
+        main = ttk.Frame(self.root, style="App.TFrame", padding=10)
         main.grid(row=0, column=0, sticky="nsew")
         main.rowconfigure(2, weight=1)
-        main.columnconfigure(1, weight=1)
+        main.columnconfigure(0, weight=1)
 
         self._build_header(main)
         self._build_highlight_strip(main)
 
-        left_panel = ttk.Frame(main, style="App.TFrame", padding=(0, 0, 12, 0))
-        left_panel.grid(row=2, column=0, sticky="nsew")
+        body_host = ttk.Frame(main, style="App.TFrame")
+        body_host.grid(row=2, column=0, sticky="nsew")
+        body_host.rowconfigure(0, weight=1)
+        body_host.columnconfigure(0, weight=1)
+
+        pane = tk.PanedWindow(
+            body_host,
+            orient="horizontal",
+            sashwidth=6,
+            sashrelief="flat",
+            borderwidth=0,
+            bg=self.COLOR_BG,
+        )
+        pane.grid(row=0, column=0, sticky="nsew")
+        self.main_pane = pane
+
+        left_panel = ttk.Frame(pane, style="App.TFrame", padding=(0, 0, 10, 0))
         left_panel.rowconfigure(1, weight=1)
+        left_panel.rowconfigure(2, weight=0)
         left_panel.columnconfigure(0, weight=1)
 
-        ttk.Label(left_panel, text="模块导航", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(2, 8))
+        ttk.Label(left_panel, text="模块导航", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
 
-        nav_card = ttk.Frame(left_panel, style="Card.TFrame", padding=10)
+        nav_card = ttk.Frame(left_panel, style="Card.TFrame", padding=8)
         nav_card.grid(row=1, column=0, sticky="nsew")
         nav_card.rowconfigure(0, weight=1)
         nav_card.columnconfigure(0, weight=1)
 
-        self.nav_list = tk.Listbox(
-            nav_card,
-            width=24,
-            height=16,
-            exportselection=False,
-            borderwidth=0,
-            highlightthickness=0,
-            activestyle="none",
-            font=("Microsoft YaHei UI", 10),
-            bg=self.COLOR_SURFACE,
-            fg=self.COLOR_TEXT,
-            selectbackground=self.COLOR_PRIMARY,
-            selectforeground="#FFFFFF",
+        self.nav_tree = ttk.Treeview(nav_card, show="tree", selectmode="browse")
+        self.nav_tree.grid(row=0, column=0, sticky="nsew")
+        self.nav_tree.bind("<<TreeviewSelect>>", self._on_module_select)
+        self.nav_tree.bind("<<TreeviewOpen>>", self._on_nav_toggle)
+        self.nav_tree.bind("<<TreeviewClose>>", self._on_nav_toggle)
+        self._build_nav_tree()
+
+        module_count_label = ttk.Label(left_panel, textvariable=self.module_count_var, style="Muted.TLabel")
+        module_count_label.grid(row=2, column=0, sticky="w", pady=(8, 0))
+
+        content_shell = ttk.Frame(pane, style="App.TFrame", padding=0)
+        content_shell.rowconfigure(0, weight=1)
+        content_shell.columnconfigure(0, weight=1)
+
+        pane.add(left_panel, minsize=240, width=270, stretch="never")
+        pane.add(content_shell, minsize=520, stretch="always")
+        self.root.after(0, self._init_main_pane)
+
+        self.content_frame = ttk.Frame(content_shell, style="App.TFrame", padding=(0, 0, 0, 0))
+        self.content_frame.grid(row=0, column=0, sticky="nsew", padx=(2, 0))
+        self.content_frame.rowconfigure(1, weight=1)
+        self.content_frame.columnconfigure(0, weight=1)
+
+        module_info_card = ttk.Frame(self.content_frame, style="Soft.TFrame", padding=(14, 10), height=96)
+        module_info_card.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        module_info_card.grid_propagate(False)
+        module_info_card.columnconfigure(0, weight=1)
+        module_info_card.rowconfigure(1, weight=1)
+        self.module_info_card = module_info_card
+
+        ttk.Label(module_info_card, textvariable=self.module_title_var, style="SectionTitle.TLabel").grid(
+            row=0, column=0, sticky="w"
         )
-        self.nav_list.grid(row=0, column=0, sticky="nsew")
-        self.nav_list.bind("<<ListboxSelect>>", self._on_module_select)
-
-        info_card = ttk.Frame(left_panel, style="Card.TFrame", padding=12)
-        info_card.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
-        info_card.columnconfigure(0, weight=1)
-
-        ttk.Label(info_card, text="工具介绍", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(info_card, textvariable=self.module_count_var, style="Body.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 8))
-        ttk.Label(
-            info_card,
+        self.module_desc_text = tk.Label(
+            module_info_card,
             textvariable=self.module_desc_var,
             justify="left",
-            wraplength=235,
-            style="Body.TLabel",
-        ).grid(row=2, column=0, sticky="nw")
+            anchor="nw",
+            bg=self.COLOR_GLASS_SOFT,
+            fg=self.COLOR_MUTED,
+            font=("Microsoft YaHei UI", 9),
+            wraplength=760,
+        )
+        self.module_desc_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
 
-        self.content_frame = ttk.Frame(main, style="Content.TFrame", padding=14)
-        self.content_frame.grid(row=2, column=1, sticky="nsew")
-        self.content_frame.rowconfigure(0, weight=1)
-        self.content_frame.columnconfigure(0, weight=1)
+        self.module_container = ttk.Frame(self.content_frame, style="Content.TFrame", padding=8)
+        self.module_container.grid(row=1, column=0, sticky="nsew")
+        self.module_container.rowconfigure(0, weight=1)
+        self.module_container.columnconfigure(0, weight=1)
 
         self._build_status_bar()
 
-        for module_name in self.registry:
-            self.nav_list.insert(tk.END, module_name)
+        available_count = sum(1 for x in self.module_catalog if x.status in ("available", "beta"))
+        planned_count = sum(1 for x in self.module_catalog if x.status == "planned")
+        self.module_count_var.set(f"已接入 {available_count} 个可用模块，规划中 {planned_count} 个")
 
-        self.module_count_var.set(f"已接入 {len(self.registry)} 个工具模块")
+    def _build_nav_tree(self) -> None:
+        if self.nav_tree is None:
+            return
+
+        self.module_node_map.clear()
+        self.module_id_to_node.clear()
+        self.category_nodes.clear()
+        self.nav_tree.delete(*self.nav_tree.get_children(""))
+
+        categories = ["文件管理", "网络工具", "安全工具", "系统维护", "效率辅助"]
+        expanded = set(self.nav_state.get("expanded_categories", categories))  # type: ignore[arg-type]
+
+        for category in categories:
+            node = self.nav_tree.insert("", tk.END, text=category, open=(category in expanded))
+            self.category_nodes[category] = node
+
+        for item in self.module_catalog:
+            parent = self.category_nodes.get(item.category)
+            if parent is None:
+                parent = self.nav_tree.insert("", tk.END, text=item.category, open=True)
+                self.category_nodes[item.category] = parent
+            node_id = self.nav_tree.insert(parent, tk.END, text=self._format_nav_text(item))
+            self.module_node_map[node_id] = item
+            self.module_id_to_node[item.id] = node_id
+
+    def _format_nav_text(self, item: ModuleMeta) -> str:
+        if item.status == "available":
+            badge = "[可用]"
+        elif item.status == "beta":
+            badge = "[Beta]"
+        else:
+            badge = f"[规划-{item.priority}]"
+        return f"{item.name} {badge}"
 
     def _build_header(self, parent: ttk.Frame) -> None:
-        header = tk.Frame(parent, bg=self.COLOR_PRIMARY, bd=0, highlightthickness=1, highlightbackground="#6EA8FE")
-        header.grid(row=0, column=0, columnspan=2, sticky="ew")
+        header = tk.Frame(parent, bg=self.COLOR_PRIMARY, bd=0, highlightthickness=1, highlightbackground="#6B92FF")
+        header.grid(row=0, column=0, sticky="ew")
         header.grid_columnconfigure(0, weight=1)
 
         left = tk.Frame(header, bg=self.COLOR_PRIMARY)
-        left.grid(row=0, column=0, sticky="w", padx=16, pady=12)
+        left.grid(row=0, column=0, sticky="w", padx=16, pady=10)
 
         tk.Label(
             left,
             text="WinTools 工具集",
             bg=self.COLOR_PRIMARY,
             fg="#FFFFFF",
-            font=("Microsoft YaHei UI", 20, "bold"),
+            font=("Microsoft YaHei UI", 18, "bold"),
         ).grid(row=0, column=0, sticky="w")
 
         tk.Label(
@@ -174,34 +264,35 @@ class WinToolsApp:
             font=("Microsoft YaHei UI", 10),
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
-        right = tk.Frame(header, bg="#EAF2FF", highlightthickness=1, highlightbackground="#C8DDFC")
+        right = tk.Frame(header, bg="#EAF2FF", highlightthickness=1, highlightbackground="#D9E6FF")
         right.grid(row=0, column=1, sticky="e", padx=14, pady=10)
 
         tk.Label(
             right,
-            text="首页`n欢迎使用",
+            text=f"v{__version__}\n欢迎使用",
             justify="right",
             bg="#EAF2FF",
             fg=self.COLOR_PRIMARY_DARK,
-            font=("Microsoft YaHei UI", 10, "bold"),
+            font=("Microsoft YaHei UI", 9, "bold"),
             padx=12,
-            pady=6,
+            pady=5,
         ).pack()
 
     def _build_highlight_strip(self, parent: ttk.Frame) -> None:
-        strip = ttk.Frame(parent, style="Card.TFrame", padding=(10, 8))
-        strip.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 12))
+        strip = ttk.Frame(parent, style="Card.TFrame", padding=(10, 7))
+        strip.grid(row=1, column=0, sticky="ew", pady=(8, 10))
 
         ttk.Label(strip, text="非阻塞扫描", style="Pill.TLabel").pack(side="left")
         ttk.Label(strip, text="历史趋势分析", style="Pill.TLabel").pack(side="left", padx=8)
         ttk.Label(strip, text="多标签结果集", style="Pill.TLabel").pack(side="left")
+        ttk.Label(strip, text="可拖拽调整左右布局", style="Muted.TLabel").pack(side="right")
 
     def _build_status_bar(self) -> None:
         self.status_container = tk.Frame(
             self.root,
-            bg="#ECFDF3",
+            bg="#EDF5FF",
             highlightthickness=1,
-            highlightbackground="#BBF7D0",
+            highlightbackground=self.COLOR_GLASS_EDGE,
         )
         self.status_container.grid(row=1, column=0, sticky="ew")
 
@@ -209,8 +300,8 @@ class WinToolsApp:
             self.status_container,
             textvariable=self.status_var,
             anchor="w",
-            bg="#ECFDF3",
-            fg="#166534",
+            bg="#EDF5FF",
+            fg="#1E3A5F",
             font=("Microsoft YaHei UI", 9),
             padx=10,
             pady=4,
@@ -219,9 +310,9 @@ class WinToolsApp:
 
     def _update_status_style(self, text: str) -> None:
         lowered = text.lower()
-        bg = "#ECFDF3"
-        border = "#BBF7D0"
-        fg = "#166534"
+        bg = "#EDF5FF"
+        border = self.COLOR_GLASS_EDGE
+        fg = "#1E3A5F"
 
         if any(token in lowered for token in ["扫描中", "处理中", "正在", "停止"]):
             bg = "#FFF7ED"
@@ -235,44 +326,169 @@ class WinToolsApp:
         self.status_container.configure(bg=bg, highlightbackground=border)
         self.status_label.configure(bg=bg, fg=fg)
 
+    def _apply_window_glass_effect(self) -> None:
+        try:
+            # 伪玻璃：整体轻微透明，搭配浅色叠层与边框高光。
+            self.root.attributes("-alpha", 0.985)
+        except tk.TclError:
+            pass
+
     def _load_default_module(self) -> None:
-        if self.nav_list.size() == 0:
+        if self.nav_tree is None:
             self.set_status("未发现可用模块")
             return
 
-        self.nav_list.selection_set(0)
-        self._switch_module(self.nav_list.get(0))
+        if not self.module_node_map:
+            self.set_status("未发现可用模块")
+            return
+
+        selected_id = self.nav_state.get("selected_module_id")
+        target_node = self.module_id_to_node.get(str(selected_id)) if selected_id else None
+        if target_node is None:
+            target_node = next((n for n, m in self.module_node_map.items() if m.status in ("available", "beta")), None)
+        if target_node is None:
+            target_node = next(iter(self.module_node_map.keys()), None)
+        if target_node is None:
+            self.set_status("未发现可用模块")
+            return
+
+        self.nav_tree.selection_set(target_node)
+        self.nav_tree.focus(target_node)
+        self._switch_module(self.module_node_map[target_node])
 
     def _on_module_select(self, _event: tk.Event[tk.Misc]) -> None:
-        selected = self.nav_list.curselection()
+        if self.nav_tree is None:
+            return
+
+        selected = self.nav_tree.selection()
         if not selected:
             return
-
-        module_name = self.nav_list.get(selected[0])
-        self._switch_module(module_name)
-
-    def _switch_module(self, module_name: str) -> None:
-        module_cls = self.registry.get(module_name)
-        if module_cls is None:
-            self.set_status(f"模块不存在: {module_name}")
+        node = selected[0]
+        item = self.module_node_map.get(node)
+        if item is None:
             return
+        self._switch_module(item)
+
+    def _switch_module(self, item: ModuleMeta) -> None:
+        module_name = item.name
 
         # 鐐瑰嚮绌虹櫧鍖哄煙鎴栭噸澶嶉€夋嫨褰撳墠妯″潡鏃讹紝涓嶉噸澶嶅嵏杞?鎸傝浇銆?
-        if self.current_module is not None and self.current_module_name == module_name:
+        if self.current_module_name == module_name:
             return
 
         if self.current_module is not None:
             self.current_module.unmount()
+            self.current_module = None
 
-        for child in self.content_frame.winfo_children():
+        for child in self.module_container.winfo_children():
             child.destroy()
 
-        self.current_module = module_cls()
         self.current_module_name = module_name
-        self.current_module.mount(self.content_frame, self.set_status)
+        if item.module_cls is not None and item.status in ("available", "beta"):
+            self.current_module = item.module_cls()
+            self.current_module.mount(self.module_container, self.set_status)
+        else:
+            self._render_planned_placeholder(item)
 
-        self.module_desc_var.set(module_cls.description or "暂无说明")
-        self.set_status(f"已切换到模块: {module_name}")
+        self.module_title_var.set(module_name)
+        self.module_desc_var.set(self._build_desc_for_item(item))
+        if item.status == "planned":
+            self.set_status(f"模块规划中: {module_name}（{item.priority}）")
+        else:
+            self.set_status(f"已切换到模块: {module_name}")
+        self.nav_state["selected_module_id"] = item.id
+        self._save_nav_state()
+
+    def _build_desc_for_item(self, item: ModuleMeta) -> str:
+        if item.status in ("available", "beta"):
+            return item.description or "暂无说明"
+        scenarios = "、".join(item.scenarios[:2]) if item.scenarios else "暂无典型场景"
+        return f"目标能力：{item.description} 预计阶段：{item.priority} 典型场景：{scenarios}"
+
+    def _render_planned_placeholder(self, item: ModuleMeta) -> None:
+        wrap = ttk.Frame(self.module_container, style="ToolBar.TFrame", padding=16)
+        wrap.grid(row=0, column=0, sticky="nsew")
+        wrap.columnconfigure(0, weight=1)
+        wrap.rowconfigure(3, weight=1)
+
+        ttk.Label(wrap, text=f"{item.name}（规划中）", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(wrap, text=f"上线阶段：{item.priority}  |  状态：规划中", style="Muted.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(4, 8)
+        )
+        desc = item.description or "暂无说明"
+        ttk.Label(wrap, text=desc, style="Body.TLabel", justify="left").grid(row=2, column=0, sticky="w")
+        scenarios = "、".join(item.scenarios) if item.scenarios else "暂无典型场景"
+        ttk.Label(wrap, text=f"典型场景：{scenarios}", style="Muted.TLabel", justify="left").grid(
+            row=3, column=0, sticky="sw", pady=(10, 0)
+        )
+
+    def _on_nav_toggle(self, _event: tk.Event[tk.Misc]) -> None:
+        if self.nav_tree is None:
+            return
+        expanded: list[str] = []
+        for category, node in self.category_nodes.items():
+            if bool(self.nav_tree.item(node, "open")):
+                expanded.append(category)
+        self.nav_state["expanded_categories"] = expanded
+        self._save_nav_state()
+
+    def _init_main_pane(self) -> None:
+        if self.main_pane is None:
+            return
+        try:
+            self.main_pane.sash_place(0, 280, 0)
+        except tk.TclError:
+            return
+
+    def _on_window_resize(self, _event: tk.Event[tk.Misc]) -> None:
+        if self.module_info_card is None:
+            return
+        if not self.root.winfo_exists() or not self.content_frame.winfo_exists():
+            return
+        content_h = self.content_frame.winfo_height()
+        if content_h <= 0:
+            return
+        width = self.content_frame.winfo_width()
+        if self.module_desc_text is not None:
+            self.module_desc_text.configure(wraplength=max(320, width - 56))
+
+        target_h = int(content_h * 0.16)
+        target_h = max(88, min(128, target_h))
+        self.module_info_card.configure(height=target_h)
+
+    def _ui_state_path(self) -> Path:
+        return Path("data") / "ui_state.json"
+
+    def _load_nav_state(self) -> dict[str, object]:
+        default_state: dict[str, object] = {
+            "expanded_categories": ["文件管理", "网络工具", "安全工具", "系统维护", "效率辅助"],
+            "selected_module_id": "dir-size",
+        }
+        path = self._ui_state_path()
+        try:
+            if not path.exists():
+                return default_state
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return default_state
+            state = default_state.copy()
+            state.update(payload)
+            return state
+        except Exception:
+            return default_state
+
+    def _save_nav_state(self) -> None:
+        path = self._ui_state_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(self.nav_state, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            # UI state persistence is best-effort.
+            pass
+
+    def _on_close(self) -> None:
+        self._save_nav_state()
+        self.root.destroy()
 
     def set_status(self, text: str) -> None:
         self.status_var.set(f"● {text}")

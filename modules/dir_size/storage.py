@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import sqlite3
 from datetime import datetime
@@ -57,12 +57,12 @@ def init_db() -> None:
             """
         )
 
-        # 兼容旧库：补齐 path_key 字段，便于按任意目录路径做趋势查询。
+        # 鍏煎鏃у簱锛氳ˉ榻?path_key 瀛楁锛屼究浜庢寜浠绘剰鐩綍璺緞鍋氳秼鍔挎煡璇€?
         columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(scan_top_dirs)")}
         if "path_key" not in columns:
             conn.execute("ALTER TABLE scan_top_dirs ADD COLUMN path_key TEXT")
 
-        # 历史行回填：不依赖文件系统，按字符串小写做兜底标准化。
+        # 鍘嗗彶琛屽洖濉細涓嶄緷璧栨枃浠剁郴缁燂紝鎸夊瓧绗︿覆灏忓啓鍋氬厹搴曟爣鍑嗗寲銆?
         conn.execute(
             """
             UPDATE scan_top_dirs
@@ -115,7 +115,7 @@ def save_scan_snapshot(root_path: str, results: List[DirSizeResult]) -> Snapshot
         )
         run_id = int(cursor.lastrowid)
 
-        # 保存当前层级全部结果（含根目录与直接子目录），便于右键任意目录做趋势分析。
+        # 淇濆瓨褰撳墠灞傜骇鍏ㄩ儴缁撴灉锛堝惈鏍圭洰褰曚笌鐩存帴瀛愮洰褰曪級锛屼究浜庡彸閿换鎰忕洰褰曞仛瓒嬪娍鍒嗘瀽銆?
         rows = [(run_id, row.path, row.size_bytes, _normalize_path(row.path)) for row in results]
         conn.executemany(
             "INSERT INTO scan_top_dirs(run_id, path, size_bytes, path_key) VALUES(?, ?, ?, ?)",
@@ -199,3 +199,43 @@ def query_trend_points(root_path: str, limit: Optional[int] = None) -> list[Tren
         rows = conn.execute(sql, params).fetchall()
 
     return [{"scanned_at": str(x["scanned_at"]), "root_size_bytes": int(x["root_size_bytes"])} for x in rows]
+def load_last_run_dir_totals_for_root(root_path: str) -> dict[str, int]:
+    """Load reliable recursive directory totals from the latest scan under the same root path.
+
+    Returns a mapping keyed by normalized absolute path.
+    The totals are considered reliable because they were produced by the directory-size module
+    where each row is a recursive total size.
+    """
+    target = _normalize_path(root_path)
+
+    with _get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT id, root_path_key, root_size_bytes
+            FROM scan_runs
+            WHERE root_path_key = ?
+            ORDER BY scanned_at DESC, id DESC
+            LIMIT 1
+            """,
+            (target,),
+        ).fetchone()
+
+        if row is None:
+            return {}
+
+        run_id = int(row["id"])
+        root_key = str(row["root_path_key"])
+        totals: dict[str, int] = {root_key: int(row["root_size_bytes"])}
+
+        for item in conn.execute(
+            """
+            SELECT path, path_key, size_bytes
+            FROM scan_top_dirs
+            WHERE run_id = ?
+            """,
+            (run_id,),
+        ).fetchall():
+            path_key = str(item["path_key"] or _normalize_path(str(item["path"])))
+            totals[path_key] = int(item["size_bytes"])
+
+    return totals
