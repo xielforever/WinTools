@@ -567,6 +567,9 @@ class PasswordVaultModule(BaseModule):
         tags_var = tk.StringVar(value=",".join(item.tags) if item else "")
         favorite_var = tk.BooleanVar(value=item.favorite if item else False)
         strength_var = tk.StringVar(value=evaluate_password_strength(password_var.get()))
+        reveal_hint_var = tk.StringVar(value="")
+        is_new_item = item is None
+        reveal_after_id: str | None = None
 
         use_upper, use_lower, use_digits, use_symbols = charset_flags_to_tuple(self.settings.gen_charset_flags)
         gen_len_var = tk.StringVar(value=str(self.settings.default_gen_length))
@@ -587,8 +590,10 @@ class PasswordVaultModule(BaseModule):
         ttk.Entry(frame, textvariable=account_var).grid(row=1, column=1, sticky="ew", pady=6)
 
         ttk.Label(frame, text="密码:").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=6)
-        ttk.Entry(frame, textvariable=password_var, show="*").grid(row=2, column=1, sticky="ew", pady=6)
+        password_entry = ttk.Entry(frame, textvariable=password_var, show="*")
+        password_entry.grid(row=2, column=1, sticky="ew", pady=6)
         ttk.Label(frame, textvariable=strength_var, style="Muted.TLabel").grid(row=2, column=2, sticky="w", padx=(8, 0))
+        ttk.Label(frame, textvariable=reveal_hint_var, style="Muted.TLabel").grid(row=2, column=3, sticky="w", padx=(8, 0))
 
         ttk.Label(frame, text="标签(逗号分隔):").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=6)
         ttk.Entry(frame, textvariable=tags_var).grid(row=3, column=1, sticky="ew", pady=6)
@@ -614,6 +619,7 @@ class PasswordVaultModule(BaseModule):
         ttk.Checkbutton(gen_frame, text="符号", variable=gen_symbols_var).grid(row=0, column=5, padx=4, pady=4)
 
         def on_generate() -> None:
+            nonlocal reveal_after_id
             try:
                 length = int(gen_len_var.get())
             except ValueError:
@@ -631,6 +637,18 @@ class PasswordVaultModule(BaseModule):
                 gen_upper_var.get(), gen_lower_var.get(), gen_digits_var.get(), gen_symbols_var.get()
             )
             self.store.save_settings(self.settings)
+            if is_new_item:
+                password_entry.configure(show="")
+                reveal_hint_var.set("首次生成：明文显示 8 秒")
+                if reveal_after_id is not None:
+                    dialog.after_cancel(reveal_after_id)
+                reveal_after_id = dialog.after(
+                    8000,
+                    lambda: (password_entry.configure(show="*"), reveal_hint_var.set("")),
+                )
+            else:
+                password_entry.configure(show="*")
+                reveal_hint_var.set("")
 
         ttk.Button(gen_frame, text="生成密码", command=on_generate).grid(row=0, column=6, padx=(10, 0), pady=4)
 

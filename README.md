@@ -28,6 +28,7 @@ python main.py
 - 分类展开/收起状态记忆与上次模块选择记忆（运行时保存）
 - 底部状态栏显示运行状态
 - 伪玻璃主题（轻透明窗口 + 浅色叠层卡片）
+- 联网自动更新 V1（仅 OneDir，启动检查 + 手动确认）
 
 ## 已实现模块
 
@@ -106,6 +107,14 @@ python main.py
 - 手动触发：Actions -> `Release` -> `Run workflow`，输入 `version_tag`
 - 版本真源：Git Tag（仅允许 `vMAJOR.MINOR.PATCH`）
 - 最新发布：`v0.1.3`（稳定）
+
+## 自动更新（V1）
+
+- 仅支持 Windows OneDir 版本（`WinTools-vX.Y.Z-windows-onedir.zip`）
+- 启动后后台检查更新，不阻塞主界面
+- 提供手动“检查更新”入口
+- 发现新版本后可选择：`立即更新` / `稍后提醒` / `跳过此版本`
+- 更新失败会执行回滚，并记录日志：`data/updates/update.log`
 
 ## 后续扩展方式
 

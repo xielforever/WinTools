@@ -1,14 +1,27 @@
 ﻿from __future__ import annotations
 
 import json
+import os
+import threading
 import tkinter as tk
+import webbrowser
+from datetime import datetime
 from pathlib import Path
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Optional
 
 from wintools import __version__
 from wintools.base import BaseModule
 from wintools.module_registry import ModuleMeta, get_module_catalog, sort_module_catalog
+from wintools.updater.service import (
+    UpdateError,
+    UpdateInfo,
+    check_for_update,
+    download_update,
+    get_app_dir,
+    is_onedir_runtime,
+    launch_updater,
+)
 
 
 class WinToolsApp:
@@ -40,7 +53,9 @@ class WinToolsApp:
         self.category_nodes: dict[str, str] = {}
         self.current_module: Optional[BaseModule] = None
         self.current_module_name: Optional[str] = None
+        self.ui_state_root: dict[str, object] = self._load_ui_state_root()
         self.nav_state: dict[str, object] = self._load_nav_state()
+        self.updater_state: dict[str, object] = self._load_updater_state()
 
         self.module_desc_var = tk.StringVar(value="")
         self.module_count_var = tk.StringVar(value="")
@@ -50,10 +65,13 @@ class WinToolsApp:
         self.main_pane: Optional[tk.PanedWindow] = None
         self.module_info_card: Optional[ttk.Frame] = None
         self.nav_tree: Optional[ttk.Treeview] = None
+        self.check_update_btn: Optional[tk.Button] = None
+        self.update_busy = False
 
         self._configure_styles()
         self._build_ui()
         self._load_default_module()
+        self.root.after(1200, lambda: self._start_update_check(manual=False))
         self.root.bind("<Configure>", self._on_window_resize)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -276,7 +294,24 @@ class WinToolsApp:
             font=("Microsoft YaHei UI", 9, "bold"),
             padx=12,
             pady=5,
-        ).pack()
+        ).pack(fill="x")
+
+        self.check_update_btn = tk.Button(
+            right,
+            text="检查更新",
+            bg="#DCE7FF",
+            fg=self.COLOR_PRIMARY_DARK,
+            activebackground="#C8DBFF",
+            activeforeground=self.COLOR_PRIMARY_DARK,
+            relief="flat",
+            borderwidth=0,
+            font=("Microsoft YaHei UI", 9, "bold"),
+            padx=10,
+            pady=3,
+            cursor="hand2",
+            command=lambda: self._start_update_check(manual=True),
+        )
+        self.check_update_btn.pack(fill="x", padx=8, pady=(0, 6))
 
     def _build_highlight_strip(self, parent: ttk.Frame) -> None:
         strip = ttk.Frame(parent, style="Card.TFrame", padding=(10, 7))
@@ -457,37 +492,257 @@ class WinToolsApp:
         self.module_info_card.configure(height=target_h)
 
     def _ui_state_path(self) -> Path:
-        return Path("data") / "ui_state.json"
+        return get_app_dir() / "data" / "ui_state.json"
+
+    def _start_update_check(self, manual: bool) -> None:
+        if self.update_busy:
+            if manual:
+                self.set_status("正在检查更新…")
+            return
+        self.update_busy = True
+        self._set_update_button_busy(True)
+        self.set_status("正在检查更新…")
+        threading.Thread(target=self._check_update_worker, args=(manual,), daemon=True).start()
+
+    def _check_update_worker(self, manual: bool) -> None:
+        supported = is_onedir_runtime()
+        skip_version = str(self.updater_state.get("skip_version", "")).strip()
+        checked_at = datetime.now().isoformat(timespec="seconds")
+        info: Optional[UpdateInfo] = None
+        error_message = ""
+        result = "no-update"
+        try:
+            if supported:
+                info = check_for_update(
+                    current_version=__version__,
+                    skip_version=None if manual else skip_version,
+                )
+                result = "update-found" if info is not None else "no-update"
+            else:
+                result = "unsupported"
+        except UpdateError as exc:
+            error_message = str(exc)
+            result = "error"
+
+        self.root.after(
+            0,
+            lambda: self._on_update_check_done(
+                manual=manual,
+                supported=supported,
+                checked_at=checked_at,
+                result=result,
+                info=info,
+                error_message=error_message,
+            ),
+        )
+
+    def _on_update_check_done(
+        self,
+        *,
+        manual: bool,
+        supported: bool,
+        checked_at: str,
+        result: str,
+        info: Optional[UpdateInfo],
+        error_message: str,
+    ) -> None:
+        self.update_busy = False
+        self._set_update_button_busy(False)
+        self.updater_state["last_check_at"] = checked_at
+        self.updater_state["last_result"] = result
+        self._save_updater_state()
+
+        if result == "unsupported":
+            if manual:
+                self.set_status("当前运行形态不支持自动更新（仅 OneDir 支持）")
+                messagebox.showinfo("自动更新", "当前仅 OneDir 版本支持自动更新。")
+            else:
+                self._clear_update_check_status()
+            return
+        if result == "error":
+            self.set_status("更新检查失败")
+            if manual:
+                messagebox.showerror("自动更新", error_message or "检查更新失败")
+            return
+        if info is None:
+            if manual:
+                self.set_status("当前已是最新版本")
+                messagebox.showinfo("自动更新", "当前已是最新版本。")
+            else:
+                self._clear_update_check_status()
+            return
+
+        self.set_status(f"发现新版本 {info.version_tag}")
+        action = self._show_update_dialog(info)
+        if action == "skip":
+            self.updater_state["skip_version"] = info.version_tag
+            self.updater_state["last_result"] = "skip-version"
+            self._save_updater_state()
+            self.set_status(f"已跳过版本 {info.version_tag}")
+            return
+        if action == "update":
+            self._apply_update_async(info)
+
+    def _apply_update_async(self, info: UpdateInfo) -> None:
+        if self.update_busy:
+            return
+        self.update_busy = True
+        self._set_update_button_busy(True)
+        self.set_status("正在下载更新包…")
+        threading.Thread(target=self._apply_update_worker, args=(info,), daemon=True).start()
+
+    def _apply_update_worker(self, info: UpdateInfo) -> None:
+        try:
+            app_dir = get_app_dir()
+            staged = download_update(info, app_dir=app_dir)
+            launch_updater(staged, current_pid=os.getpid(), app_dir=app_dir)
+        except UpdateError as exc:
+            self.root.after(0, lambda: self._on_update_apply_failed(str(exc)))
+            return
+        except Exception as exc:
+            self.root.after(0, lambda: self._on_update_apply_failed(f"更新失败：{exc}"))
+            return
+        self.root.after(0, self._on_update_apply_started)
+
+    def _on_update_apply_started(self) -> None:
+        self.update_busy = False
+        self._set_update_button_busy(False)
+        self.set_status("更新已下载，正在应用…")
+        self.updater_state["last_result"] = "apply-started"
+        self._save_updater_state()
+        messagebox.showinfo("自动更新", "更新已下载，程序将退出并完成替换。")
+        self._on_close()
+
+    def _on_update_apply_failed(self, message: str) -> None:
+        self.update_busy = False
+        self._set_update_button_busy(False)
+        self.updater_state["last_result"] = "apply-failed"
+        self._save_updater_state()
+        self.set_status("更新失败，已回滚")
+        messagebox.showerror("自动更新", message)
+
+    def _show_update_dialog(self, info: UpdateInfo) -> str:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("发现新版本")
+        dialog.geometry("430x220")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        result = {"action": "later"}
+        panel = ttk.Frame(dialog, padding=14)
+        panel.pack(fill="both", expand=True)
+        panel.columnconfigure(0, weight=1)
+
+        ttk.Label(panel, text=f"当前版本：v{__version__}", style="Body.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(panel, text=f"最新版本：{info.version_tag}", style="SectionTitle.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(4, 2)
+        )
+        ttk.Label(panel, text="是否现在更新？", style="Body.TLabel").grid(row=2, column=0, sticky="w", pady=(2, 10))
+
+        link_btn = ttk.Button(
+            panel,
+            text="查看更新说明",
+            command=lambda: webbrowser.open(info.release_url) if info.release_url else None,
+        )
+        link_btn.grid(row=3, column=0, sticky="w")
+
+        btns = ttk.Frame(panel)
+        btns.grid(row=4, column=0, sticky="e", pady=(16, 0))
+
+        def choose(action: str) -> None:
+            result["action"] = action
+            dialog.destroy()
+
+        ttk.Button(btns, text="稍后提醒", command=lambda: choose("later")).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(btns, text="跳过此版本", command=lambda: choose("skip")).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(btns, text="立即更新", command=lambda: choose("update")).grid(row=0, column=2)
+
+        dialog.wait_window()
+        return str(result["action"])
+
+    def _set_update_button_busy(self, busy: bool) -> None:
+        if self.check_update_btn is None:
+            return
+        self.check_update_btn.configure(
+            state="disabled" if busy else "normal",
+            text="检查中…" if busy else "检查更新",
+        )
+
+    def _clear_update_check_status(self) -> None:
+        if "正在检查更新" in self.status_var.get():
+            self.set_status("就绪")
+
+    def _load_ui_state_root(self) -> dict[str, object]:
+        path = self._ui_state_path()
+        try:
+            if not path.exists():
+                return {}
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            return {}
+        return {}
+
+    def _save_ui_state_root(self) -> None:
+        path = self._ui_state_path()
+        try:
+            merged: dict[str, object] = {}
+            if path.exists():
+                current = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(current, dict):
+                    merged.update(current)
+            merged.update(self.ui_state_root)
+            self.ui_state_root = merged
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     def _load_nav_state(self) -> dict[str, object]:
         default_state: dict[str, object] = {
             "expanded_categories": ["文件管理", "网络工具", "安全工具", "系统维护", "效率辅助"],
             "selected_module_id": "dir-size",
         }
-        path = self._ui_state_path()
-        try:
-            if not path.exists():
-                return default_state
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict):
-                return default_state
-            state = default_state.copy()
-            state.update(payload)
-            return state
-        except Exception:
-            return default_state
+        payload = self.ui_state_root
+        state = default_state.copy()
+        node = payload.get("app_nav")
+        if isinstance(node, dict):
+            state.update(node)
+        else:
+            # Backward compatibility with old flat keys.
+            for key in ("expanded_categories", "selected_module_id"):
+                if key in payload:
+                    state[key] = payload[key]
+        return state
+
+    def _load_updater_state(self) -> dict[str, object]:
+        default_state: dict[str, object] = {
+            "last_check_at": "",
+            "skip_version": "",
+            "last_result": "",
+        }
+        node = self.ui_state_root.get("updater")
+        state = default_state.copy()
+        if isinstance(node, dict):
+            state.update(node)
+        return state
 
     def _save_nav_state(self) -> None:
-        path = self._ui_state_path()
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(self.nav_state, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            # UI state persistence is best-effort.
-            pass
+        self.ui_state_root["app_nav"] = dict(self.nav_state)
+        # Keep old keys for compatibility with existing files.
+        self.ui_state_root["expanded_categories"] = self.nav_state.get("expanded_categories", [])
+        self.ui_state_root["selected_module_id"] = self.nav_state.get("selected_module_id", "")
+        self._save_ui_state_root()
+
+    def _save_updater_state(self) -> None:
+        self.ui_state_root["updater"] = dict(self.updater_state)
+        self._save_ui_state_root()
 
     def _on_close(self) -> None:
         self._save_nav_state()
+        self._save_updater_state()
         self.root.destroy()
 
     def set_status(self, text: str) -> None:

@@ -22,7 +22,9 @@ $versionFile = Join-Path $repoRoot "wintools\_build_version.py"
 
 $onedirDist = Join-Path $distRoot "onedir"
 $onefileDist = Join-Path $distRoot "onefile"
+$updaterDist = Join-Path $buildRoot "updater-dist"
 $onedirApp = Join-Path $onedirDist "WinTools"
+$updaterExe = Join-Path $updaterDist "WinToolsUpdater.exe"
 $zipArtifact = Join-Path $distRoot "WinTools-$Version-windows-onedir.zip"
 $exeArtifact = Join-Path $distRoot "WinTools-$Version-windows-onefile.exe"
 
@@ -48,6 +50,14 @@ try {
     if (-not (Test-Path $onedirApp)) {
         throw "OneDir app folder was not created: $onedirApp"
     }
+
+    Write-Host "[build] Building external updater..."
+    python -m PyInstaller --noconfirm --clean --windowed --onefile --name WinToolsUpdater --distpath $updaterDist --workpath (Join-Path $buildRoot "updater") --specpath $specRoot updater.py
+
+    if (-not (Test-Path $updaterExe)) {
+        throw "Updater executable was not created: $updaterExe"
+    }
+    Copy-Item -Force $updaterExe (Join-Path $onedirApp "WinToolsUpdater.exe")
 
     Write-Host "[build] Creating OneDir ZIP artifact..."
     Compress-Archive -Path $onedirApp -DestinationPath $zipArtifact -Force

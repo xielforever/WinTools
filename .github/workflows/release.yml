@@ -59,6 +59,17 @@ jobs:
         run: |
           .\scripts\build.ps1 -Version "${{ steps.version.outputs.version_tag }}" -SkipDependencyInstall
 
+      - name: 生成产物 SHA256 摘要
+        shell: pwsh
+        run: |
+          $zip = "dist/WinTools-${{ steps.version.outputs.version_tag }}-windows-onedir.zip"
+          $exe = "dist/WinTools-${{ steps.version.outputs.version_tag }}-windows-onefile.exe"
+          $zipHash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          $exeHash = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
+          "### 构建产物 SHA256" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "- onedir.zip: `sha256:$zipHash`" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "- onefile.exe: `sha256:$exeHash`" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
