@@ -1,13 +1,21 @@
 ﻿## 安装与运行说明
 
-本次发布提供 2 种 Windows 产物：
+本次发布包含 2 种 Windows 产物，请按场景选择：
 
-- `WinTools-vX.Y.Z-windows-onedir.zip`
-  - 下载后解压，运行 `WinTools.exe`。
-  - 启动更稳定，排查依赖问题更方便。
+### 1) 推荐：目录版（稳定）
 
-- `WinTools-vX.Y.Z-windows-onefile.exe`
-  - 单文件可直接运行，分发更方便。
-  - 首次启动可能更慢，且杀软误报概率通常更高。
+- 文件：`WinTools-vX.Y.Z-windows-onedir.zip`
+- 使用方式：下载后解压，双击 `WinTools.exe` 启动
+- 适用场景：日常使用、问题排查、企业内网环境
 
-首次运行时，Windows SmartScreen 可能出现拦截提示，可按组织安全策略决定是否放行。
+### 2) 便携：单文件版（分发方便）
+
+- 文件：`WinTools-vX.Y.Z-windows-onefile.exe`
+- 使用方式：下载后可直接运行
+- 适用场景：临时使用、快速分发
+- 注意：首次启动可能稍慢，且被安全软件误报的概率通常高于目录版
+
+## 常见提示
+
+- 首次运行若遇到 Windows SmartScreen 拦截，请按组织安全策略决定是否放行。
+- 若运行异常，建议优先改用目录版（`onedir`）进行验证。
