@@ -80,6 +80,24 @@ def _wait_for_process_exit(pid: int, timeout_seconds: int, log_file: Path) -> No
 def _is_process_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        try:
+            proc = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            out = (proc.stdout or "").strip()
+            if not out:
+                return False
+            if out.lower().startswith("info:"):
+                return False
+            # tasklist returns a CSV row when process exists.
+            return str(pid) in out
+        except Exception:
+            # Fall back to os.kill probe below.
+            pass
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -87,7 +105,7 @@ def _is_process_alive(pid: int) -> bool:
     except PermissionError:
         return True
     except OSError:
-        return True
+        return False
     return True
 
 
@@ -100,4 +118,3 @@ def _log(log_file: Path, msg: str) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
