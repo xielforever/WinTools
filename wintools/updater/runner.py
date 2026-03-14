@@ -37,6 +37,7 @@ def main() -> int:
         shutil.move(str(app_dir), str(backup_dir))
 
         try:
+            _remove_swap_target_if_present(app_dir, log_file)
             _log(log_file, f"Switch to new app: {next_dir} -> {app_dir}")
             shutil.move(str(next_dir), str(app_dir))
         except Exception:
@@ -114,6 +115,24 @@ def _log(log_file: Path, msg: str) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     with log_file.open("a", encoding="utf-8") as f:
         f.write(f"[{timestamp}] {msg}\n")
+
+
+def _remove_swap_target_if_present(app_dir: Path, log_file: Path) -> None:
+    if not app_dir.exists():
+        return
+    _log(log_file, f"Remove stale swap target: {app_dir}")
+    last_error: Exception | None = None
+    for _ in range(10):
+        try:
+            shutil.rmtree(app_dir, ignore_errors=False)
+            return
+        except FileNotFoundError:
+            return
+        except Exception as exc:
+            last_error = exc
+            time.sleep(0.5)
+    if last_error is not None:
+        raise last_error
 
 
 if __name__ == "__main__":

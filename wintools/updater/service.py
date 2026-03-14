@@ -184,7 +184,7 @@ def launch_updater(staged: StagedPackage, current_pid: int, app_dir: Path) -> No
         str(log_path),
     ]
     try:
-        subprocess.Popen(args, close_fds=True)
+        subprocess.Popen(args, close_fds=True, cwd=str(runtime_updater_exe.parent))
     except Exception as exc:
         raise UpdateError(f"启动更新器失败：{exc}") from exc
 
