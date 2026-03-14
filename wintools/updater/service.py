@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -184,7 +185,12 @@ def launch_updater(staged: StagedPackage, current_pid: int, app_dir: Path) -> No
         str(log_path),
     ]
     try:
-        subprocess.Popen(args, close_fds=True, cwd=str(runtime_updater_exe.parent))
+        subprocess.Popen(
+            args,
+            close_fds=True,
+            cwd=str(runtime_updater_exe.parent),
+            **_windows_subprocess_kwargs(),
+        )
     except Exception as exc:
         raise UpdateError(f"启动更新器失败：{exc}") from exc
 
@@ -258,3 +264,15 @@ def _prepare_runtime_updater_exe(source_exe: Path) -> Path:
     except Exception as exc:
         raise UpdateError(f"准备更新器失败：{exc}") from exc
     return runtime_exe
+
+
+def _windows_subprocess_kwargs() -> dict[str, object]:
+    if os.name != "nt":
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = 0
+    return {
+        "creationflags": subprocess.CREATE_NO_WINDOW,
+        "startupinfo": startupinfo,
+    }

@@ -49,7 +49,7 @@ def main() -> int:
             raise
 
         _log(log_file, f"Restart app: {restart_exe}")
-        subprocess.Popen([str(restart_exe)], close_fds=True)
+        subprocess.Popen([str(restart_exe)], close_fds=True, **_windows_subprocess_kwargs())
         _log(log_file, "Update completed")
         return 0
     except Exception as exc:
@@ -88,6 +88,7 @@ def _is_process_alive(pid: int) -> bool:
                 capture_output=True,
                 text=True,
                 check=False,
+                **_windows_subprocess_kwargs(),
             )
             out = (proc.stdout or "").strip()
             if not out:
@@ -133,6 +134,18 @@ def _remove_swap_target_if_present(app_dir: Path, log_file: Path) -> None:
             time.sleep(0.5)
     if last_error is not None:
         raise last_error
+
+
+def _windows_subprocess_kwargs() -> dict[str, object]:
+    if os.name != "nt":
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = 0
+    return {
+        "creationflags": subprocess.CREATE_NO_WINDOW,
+        "startupinfo": startupinfo,
+    }
 
 
 if __name__ == "__main__":
