@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import threading
 import tkinter as tk
 import webbrowser
@@ -610,8 +611,8 @@ class WinToolsApp:
         self.set_status("更新已下载，正在应用…")
         self.updater_state["last_result"] = "apply-started"
         self._save_updater_state()
-        messagebox.showinfo("自动更新", "更新已下载，程序将退出并完成替换。")
-        self._on_close()
+        messagebox.showinfo("自动更新", "更新已下载。点击确定后程序将退出并完成替换。")
+        self._exit_for_update()
 
     def _on_update_apply_failed(self, message: str) -> None:
         self.update_busy = False
@@ -744,6 +745,24 @@ class WinToolsApp:
         self._save_nav_state()
         self._save_updater_state()
         self.root.destroy()
+
+    def _exit_for_update(self) -> None:
+        self._save_nav_state()
+        self._save_updater_state()
+        try:
+            if self.current_module is not None:
+                self.current_module.unmount()
+        except Exception:
+            pass
+        try:
+            self.root.update_idletasks()
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+        os._exit(0)
 
     def set_status(self, text: str) -> None:
         self.status_var.set(f"● {text}")
