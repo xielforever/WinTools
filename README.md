@@ -114,7 +114,9 @@ python main.py
 - 启动后后台检查更新，不阻塞主界面
 - 提供手动“检查更新”入口
 - 发现新版本后可选择：`立即更新` / `稍后提醒` / `跳过此版本`
-- 更新失败会执行回滚，并记录日志：`data/updates/update.log`
+- 更新运行时状态保存在应用目录上级的 `.wintools-updater/`
+- 回滚备份目录为：`.wintools-updater/backup`
+- 更新日志为：`.wintools-updater/update.log`
 
 ## 后续扩展方式
 

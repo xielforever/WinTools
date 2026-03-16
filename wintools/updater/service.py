@@ -162,11 +162,12 @@ def launch_updater(staged: StagedPackage, current_pid: int, app_dir: Path) -> No
         raise UpdateError("当前版本不支持自动更新：未找到 WinToolsUpdater.exe")
 
     runtime_updater_exe = _prepare_runtime_updater_exe(updater_exe)
-    backup_dir = app_dir.parent / f"{app_dir.name}_bak"
+    runtime_state_dir = app_dir.parent / ".wintools-updater"
+    backup_dir = runtime_state_dir / "backup"
     restart_exe = app_dir / "WinTools.exe"
     # Keep updater logs outside the app directory so the swap target stays absent
     # until the final rename from "<app>_next" -> "<app>".
-    log_path = app_dir.parent / ".wintools-updater" / "update.log"
+    log_path = runtime_state_dir / "update.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     args = [
